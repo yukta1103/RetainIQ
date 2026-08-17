@@ -61,3 +61,40 @@ CUSTOMER_KEY = "customer_unique_id"
 # Revenue definition: item price + freight, summed to order level.
 # See pipeline/build.py for why this rather than payments.
 REVENUE_COMPONENTS = ("price", "freight_value")
+
+
+# --- RFM thresholds -------------------------------------------------------
+#
+# These are NOT quintiles. Quintiles are meaningless on this data: 97.85% of
+# customers have frequency 1, so four of the five frequency quintiles would
+# hold identical customers. Each cut below is derived from observed behaviour;
+# analytics/rfm.py::derive_thresholds() reproduces the derivation from the
+# parquet so the numbers can be re-audited rather than taken on faith.
+
+# RECENCY — anchored on the empirical repurchase curve. Measuring the gap
+# between consecutive purchase OCCASIONS (same-day splits excluded), genuine
+# repurchases land at: 56.0% within 90d, 76.9% within 180d, 96.4% within 365d.
+# So the cuts mark real inflection points in repurchase probability:
+#   <=90d   still inside the window where most repurchases happen
+#   <=180d  cooling, but a quarter of repurchases still occur beyond here
+#   <=365d  at risk — past this only 3.6% of repurchases ever occur
+#   >365d   effectively dormant
+RECENCY_BINS_DAYS = (90, 180, 365)
+
+# FREQUENCY — counted in distinct purchase DAYS, not orders.
+#
+# 29.6% of consecutive order pairs are less than 24h apart (27.3% under one
+# hour): Olist splits a single basket into one order per seller. Counting those
+# as repeat purchases inflates the repeat rate from the true 2.15% to 3.00%.
+# A customer who placed three orders in one hour made one purchase decision.
+#
+# No quantile cut is possible here — the distribution is 97.85% ones. The bins
+# are therefore the natural counts.
+FREQUENCY_BINS = (1, 2)  # 1 occasion | 2 occasions | 3+
+
+# MONETARY — anchored on AOV multiples, which are business-interpretable
+# ("this customer is worth three average orders"). The 3x cut lands at
+# R$ 479 which is almost exactly the 95th percentile (R$ 469) — the point
+# where revenue concentration bites: the top 5% of customers drive 26.8% of
+# revenue, the top 20% drive 53.5%.
+MONETARY_AOV_MULTIPLES = (1.0, 3.0)
