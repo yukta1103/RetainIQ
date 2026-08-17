@@ -1,4 +1,19 @@
-pandas==2.2.3
+# Pinned as a coherent numpy-1.26 stack.
+#
+# numpy 2.x is deliberately excluded: lightgbm 4.7 + numpy 2.5 segfaults
+# (access violation in LGBM_DatasetSetField) on Windows, and pandas 2.2.3 is
+# a numpy-1.x era build. Keeping the whole stack on numpy 1.26 avoids ABI
+# mismatches here and on Streamlit Cloud.
 numpy==1.26.4
+pandas==2.2.3
 pyarrow==17.0.0
 requests==2.32.3
+
+scipy==1.13.1
+scikit-learn==1.5.2
+lightgbm==4.5.0
+joblib==1.4.2
+lifetimes==0.11.3
+
+streamlit==1.39.0
+plotly==5.24.1
