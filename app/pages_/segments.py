@@ -38,6 +38,18 @@ def render(f: data.Filters) -> None:
         st.plotly_chart(charts.segment_value_scatter(summary), use_container_width=True)
 
     st.markdown("#### Segment detail")
+    st.markdown(
+        "<div class='caveat'><b>Read the revenue index with care — for two "
+        "segments it is circular.</b> <i>Big Spender (One-Off)</i> and "
+        "<i>Champions</i> are <b>defined</b> by spend above 3x AOV (R$ 479); the "
+        "lowest observed spend in Big Spender is R$ 480.31. Saying they have a high "
+        "revenue index restates their definition rather than discovering anything. "
+        "The index is informative only for the recency-defined segments "
+        "(Hibernating, Lost, New, At Risk), where nothing in the rule references "
+        "money. For a non-circular view of concentration, see the Lorenz curve on "
+        "the Business Insights page.</div>",
+        unsafe_allow_html=True,
+    )
     show = summary[summary["customers"] > 0].copy()
     st.dataframe(
         show[["segment", "customers", "pct_customers", "revenue", "pct_revenue",
@@ -57,7 +69,9 @@ def render(f: data.Filters) -> None:
             "% of revenue": st.column_config.NumberColumn(format="%.2f%%"),
             "Repeat %": st.column_config.NumberColumn(format="%.1f%%"),
             "Revenue index": st.column_config.NumberColumn(
-                format="%.2f", help=">1 means the segment earns more revenue than its size implies."),
+                format="%.2f",
+                help="Share of revenue / share of customers. CIRCULAR for "
+                     "Big Spender and Champions, which are defined by spend."),
             "Avg recency (d)": st.column_config.NumberColumn(format="%.0f"),
             "Avg frequency": st.column_config.NumberColumn(format="%.2f"),
         },

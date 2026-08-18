@@ -66,29 +66,29 @@ def _dataset(panel: Panel, reference: lgb.Dataset | None = None) -> lgb.Dataset:
 
 def train(
     train_panel: Panel,
+    valid_panel: Panel,
     test_panel: Panel,
     params: dict | None = None,
     num_boost_round: int = NUM_BOOST_ROUND,
     early_stopping: int = 50,
 ) -> GBMResult:
-    """Fit on the stacked training origins, early-stop on the held-out origin.
+    """Fit on the stacked training origins; select rounds on VALID, score TEST.
 
-    Note on early stopping: using the test panel as the stopping set leaks a
-    little information about *when* to stop. With only 418 test positives, a
-    separate validation origin would be even noisier. We therefore hold the
-    round count modest and report the chosen iteration so the leak is visible
-    and bounded rather than hidden.
+    The validation panel is its own observation origin (2018-03-01), strictly
+    earlier than the test origin and with its target window closed before the
+    test origin opens. Iteration count is therefore chosen without ever
+    consulting the data the model is scored on.
     """
     p = {**PARAMS, **(params or {})}
     dtrain = _dataset(train_panel)
-    dvalid = _dataset(test_panel, reference=dtrain)
+    dvalid = _dataset(valid_panel, reference=dtrain)
 
     booster = lgb.train(
         p,
         dtrain,
         num_boost_round=num_boost_round,
         valid_sets=[dvalid],
-        valid_names=["holdout"],
+        valid_names=["validation"],
         callbacks=[lgb.early_stopping(early_stopping, verbose=False)],
     )
 
@@ -112,10 +112,13 @@ def train(
     )
 
 
-def train_l2_baseline(train_panel: Panel, test_panel: Panel) -> GBMResult:
+def train_l2_baseline(
+    train_panel: Panel, valid_panel: Panel, test_panel: Panel
+) -> GBMResult:
     """Same model with a plain L2 objective, to justify the Tweedie choice."""
     return train(
         train_panel,
+        valid_panel,
         test_panel,
         params={"objective": "regression", "metric": "l2"},
     )

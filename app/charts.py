@@ -203,45 +203,153 @@ def _ramp(t: float) -> str:
     return stops[-1][1]
 
 
-def decile_calibration(cal: pd.DataFrame, title: str, height: int = 380) -> go.Figure:
-    """Predicted vs actual per decile -- 2 series, both direct-labelled."""
-    fig = _fig(title, height, "Mean 90-day spend (R$)")
-    for name, col, color in [
-        ("Predicted", "mean_predicted", T.BLUE),
-        ("Actual", "mean_actual", T.ORANGE),
-    ]:
+def lorenz_curve(monetary: pd.Series, height: int = 400) -> go.Figure:
+    """Cumulative revenue share vs cumulative customer share.
+
+    Computed straight from the spend distribution, with no reference to the
+    segmentation -- which is the point. A segment defined by high spend will
+    always look revenue-dense; this curve cannot be circular because nothing
+    about it depends on how customers were grouped.
+    """
+    v = np.sort(monetary.to_numpy())[::-1]
+    cum = np.cumsum(v) / v.sum() * 100
+    share = np.arange(1, len(v) + 1) / len(v) * 100
+
+    fig = _fig("Revenue concentration across the customer base", height,
+               "% of cumulative revenue")
+    fig.add_trace(
+        go.Scatter(
+            x=[0, 100], y=[0, 100], mode="lines",
+            line=dict(color=T.BASELINE, width=1, dash="dot"),
+            name="perfect equality", hoverinfo="skip",
+        )
+    )
+    step = max(len(v) // 2000, 1)
+    fig.add_trace(
+        go.Scatter(
+            x=share[::step], y=cum[::step], mode="lines",
+            line=dict(color=T.BLUE, width=LINE_W), name="observed",
+            hovertemplate="top %{x:.1f}% of customers<br>"
+                          "hold %{y:.1f}% of revenue<extra></extra>",
+        )
+    )
+    for pct, color in [(5, T.ORANGE), (20, T.ORANGE)]:
+        y = cum[int(len(v) * pct / 100) - 1]
         fig.add_trace(
-            go.Bar(
-                x=cal["decile"].astype(str), y=cal[col], name=name,
-                marker=dict(color=color, line=dict(width=2, color=T.SURFACE)),
-                hovertemplate="%{x} " + name + ": R$ %{y:,.2f}<extra></extra>",
+            go.Scatter(
+                x=[pct], y=[y], mode="markers+text",
+                text=[f"  top {pct}% → {y:.1f}%"], textposition="middle right",
+                textfont=dict(size=11, color=T.INK_SECONDARY),
+                marker=dict(size=MARKER + 2, color=color,
+                            line=dict(width=2, color=T.SURFACE)),
+                hovertemplate=f"top {pct}% of customers hold {y:.1f}% of revenue<extra></extra>",
+                showlegend=False,
             )
         )
-    fig.update_layout(barmode="group", bargap=0.28, bargroupgap=0.08,
+    fig.update_xaxes(title=dict(text="% of customers, ranked by spend",
+                                font=dict(size=12, color=T.INK_MUTED)),
+                     showgrid=True, gridcolor=T.GRIDLINE, showline=False)
+    fig.update_layout(hovermode="closest")
+    return fig
+
+
+def quintile_calibration(cal: pd.DataFrame, title: str, height: int = 400) -> go.Figure:
+    """Predicted vs actual per quintile, with a bootstrap band on actual.
+
+    Quintiles rather than deciles: at 418 holdout positives a decile holds ~41
+    (binomial sd ~6.5) and its wobble is noise. The error bars are the point --
+    they show which bins are actually distinguishable and which are not.
+    """
+    fig = _fig(title, height, "Mean 90-day spend (R$)")
+    x = cal["bin"].astype(str)
+
+    fig.add_trace(
+        go.Bar(
+            x=x, y=cal["mean_predicted"], name="Predicted",
+            marker=dict(color=T.BLUE, line=dict(width=2, color=T.SURFACE)),
+            hovertemplate="%{x} predicted: R$ %{y:,.2f}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=x, y=cal["mean_actual"], name="Actual (95% CI)",
+            marker=dict(color=T.ORANGE, line=dict(width=2, color=T.SURFACE)),
+            error_y=dict(
+                type="data", symmetric=False,
+                array=(cal["actual_hi"] - cal["mean_actual"]).to_numpy(),
+                arrayminus=(cal["mean_actual"] - cal["actual_lo"]).to_numpy(),
+                color=T.INK_SECONDARY, thickness=1.5, width=6,
+            ),
+            hovertemplate=("%{x} actual: R$ %{y:,.2f}<extra></extra>"),
+        )
+    )
+    fig.update_layout(barmode="group", bargap=0.3, bargroupgap=0.08,
                       hovermode="x unified")
-    fig.update_xaxes(title=dict(text="predicted-value decile (D1 = highest)",
+    fig.update_xaxes(title=dict(text="predicted-score quintile (Q1 = highest)",
                                 font=dict(size=12, color=T.INK_MUTED)))
     return fig
 
 
-def revenue_capture(cal: pd.DataFrame, height: int = 340) -> go.Figure:
-    """Share of actual holdout revenue per predicted decile -- magnitude, one hue."""
-    fig = _fig("Where the actual revenue landed, by predicted decile", height,
+def revenue_capture(cal: pd.DataFrame, height: int = 360) -> go.Figure:
+    """Share of actual holdout revenue per predicted quintile."""
+    n = len(cal)
+    even = 100.0 / n
+    fig = _fig("Where the actual revenue landed, by predicted score", height,
                "% of holdout revenue")
     fig.add_trace(
         go.Bar(
-            x=cal["decile"].astype(str), y=cal["pct_of_actual_revenue"],
+            x=cal["bin"].astype(str), y=cal["pct_of_actual_revenue"],
             marker=dict(color=T.BLUE, line=dict(width=2, color=T.SURFACE)),
             text=[f"{v:.1f}%" for v in cal["pct_of_actual_revenue"]],
             textposition="outside", textfont=dict(size=11, color=T.INK_SECONDARY),
             hovertemplate="%{x}: %{y:.1f}% of revenue<extra></extra>",
         )
     )
-    fig.add_hline(y=10, line=dict(color=T.BASELINE, width=1, dash="dot"))
-    fig.add_annotation(x=cal["decile"].astype(str).iloc[-1], y=10,
-                       text="random targeting = 10%", showarrow=False, yshift=12,
-                       font=dict(size=11, color=T.INK_MUTED))
+    fig.add_hline(y=even, line=dict(color=T.BASELINE, width=1, dash="dot"))
+    fig.add_annotation(
+        x=cal["bin"].astype(str).iloc[-1], y=even,
+        text=f"random targeting = {even:.0f}%", showarrow=False, yshift=12,
+        font=dict(size=11, color=T.INK_MUTED),
+    )
     fig.update_layout(showlegend=False, bargap=0.3)
+    return fig
+
+
+def auc_intervals(ev: pd.DataFrame, height: int = 360) -> go.Figure:
+    """Model AUCs as point + 95% interval against the 0.5 random line.
+
+    A bar chart of point estimates would imply separation that the intervals
+    do not support, so the interval is the mark, not decoration.
+    """
+    d = ev.sort_values("AUC")
+    fig = _fig("Ranking quality: AUC with 95% bootstrap intervals", height, "")
+    fig.add_vline(x=0.5, line=dict(color=T.CRITICAL, width=1, dash="dot"))
+    fig.add_annotation(x=0.5, y=-0.6, text="random", showarrow=False,
+                       font=dict(size=11, color=T.CRITICAL), yshift=-6)
+    for _, r in d.iterrows():
+        beats = r["AUC_lo"] > 0.5
+        color = T.BLUE if beats else T.INK_MUTED
+        fig.add_trace(
+            go.Scatter(
+                x=[r["AUC_lo"], r["AUC_hi"]], y=[r["model"], r["model"]],
+                mode="lines", line=dict(color=color, width=3),
+                hoverinfo="skip", showlegend=False,
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[r["AUC"]], y=[r["model"]], mode="markers",
+                marker=dict(size=MARKER + 2, color=color,
+                            line=dict(width=2, color=T.SURFACE)),
+                hovertemplate=(f"<b>{r['model']}</b><br>AUC {r['AUC']:.3f} "
+                               f"[{r['AUC_lo']:.3f}, {r['AUC_hi']:.3f}]<extra></extra>"),
+                showlegend=False,
+            )
+        )
+    fig.update_xaxes(showgrid=True, gridcolor=T.GRIDLINE, showline=False,
+                     title=dict(text="AUC", font=dict(size=12, color=T.INK_MUTED)))
+    fig.update_yaxes(showgrid=False)
+    fig.update_layout(margin=dict(l=8, r=24, t=48, b=32))
     return fig
 
 

@@ -171,13 +171,23 @@ def clean_order_reviews(df: pd.DataFrame, log: CleaningLog) -> pd.DataFrame:
     )
     # review_id is not unique; an order can also collect more than one review.
     # Collapse to one mean score per order so the join stays 1:1 against orders.
+    #
+    # review_creation_date is carried through deliberately: a review is written
+    # AFTER the purchase, so any feature built from review_score is only
+    # available once that date has passed. models/features.py masks on it to
+    # keep the training panel leak-free. Take the MAX so an order counts as
+    # "reviewed" only when every one of its reviews already existed.
     df = log.apply(
         df,
         "order_reviews",
         "collapsed to mean score per order",
         lambda d: (
             d.groupby("order_id", as_index=False)
-            .agg(review_score=("review_score", "mean"), n_reviews=("review_score", "size"))
+            .agg(
+                review_score=("review_score", "mean"),
+                n_reviews=("review_score", "size"),
+                review_creation_date=("review_creation_date", "max"),
+            )
         ),
     )
     return df

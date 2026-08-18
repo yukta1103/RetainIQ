@@ -90,7 +90,10 @@ def build_transactions(clean: dict[str, pd.DataFrame], log: CleaningLog) -> pd.D
     tx = tx.merge(
         sellers[["seller_id", "seller_state"]], on="seller_id", how="left"
     )
-    tx = tx.merge(reviews[["order_id", "review_score"]], on="order_id", how="left")
+    tx = tx.merge(
+        reviews[["order_id", "review_score", "review_creation_date"]],
+        on="order_id", how="left",
+    )
     tx = tx.merge(pay_agg, on="order_id", how="left")
     assert len(tx) == before, "dimension join changed the transaction grain"
 
@@ -114,6 +117,9 @@ def build_transactions(clean: dict[str, pd.DataFrame], log: CleaningLog) -> pd.D
         "customer_city", "customer_state",
         "review_score", "payment_type", "max_installments", "n_payment_methods",
         "payment_total", "delivery_days", "delivered_late",
+        # Event timestamps kept so downstream features can mask on when each
+        # measure actually became knowable, not on when the order was placed.
+        "order_delivered_customer_date", "review_creation_date",
     ]
     return tx[cols].sort_values(["order_purchase_timestamp", "order_id", "order_item_id"]).reset_index(drop=True)
 
@@ -138,6 +144,8 @@ def build_orders(tx: pd.DataFrame) -> pd.DataFrame:
         review_score=("review_score", "first"),
         delivery_days=("delivery_days", "first"),
         delivered_late=("delivered_late", "first"),
+        order_delivered_customer_date=("order_delivered_customer_date", "first"),
+        review_creation_date=("review_creation_date", "first"),
         customer_state=("customer_state", "first"),
         customer_city=("customer_city", "first"),
         top_category=("product_category", lambda s: s.value_counts().index[0]),

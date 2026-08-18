@@ -21,10 +21,18 @@ def load_bundle():
 
 
 def render(f: data.Filters) -> None:
-    st.title("CLV Predictions")
+    st.title("Repeat-Propensity Ranking")
     st.caption(
-        "Predicted spend over the next 90 days, scored at 2018-06-01 from "
-        "features that use only prior data."
+        "Scores customers by how likely they are to spend again in the next 90 "
+        "days, at 2018-06-01, from features using only prior data."
+    )
+    st.markdown(
+        "<div class='caveat'><b>This is a ranker, not a CLV forecast.</b> It "
+        "orders customers by repurchase likelihood; it does not produce "
+        "trustworthy per-customer spend predictions. Predicting R$ 0 for everyone "
+        "beats it on MAE, and its rank correlation with actual spend is ~0.03. "
+        "Use the ordering, not the numbers.</div>",
+        unsafe_allow_html=True,
     )
 
     clv = data.filter_customers(data.load("clv"), f)
@@ -146,54 +154,96 @@ def render(f: data.Filters) -> None:
             return
 
         ev = bundle["evaluation"]
+        n_pos = bundle.get("n_test_positives", 418)
         st.markdown("#### How the models compare")
         st.markdown(
-            "<div class='caveat'><b>Read MAE with suspicion.</b> The target is "
-            "99.44% zeros, so 'predict zero for everyone' scores MAE 0.890 — better "
-            "than every real model. Ranking metrics are what separate them: AUC and "
-            "top-decile revenue capture.</div>",
+            f"<div class='caveat'><b>Only {n_pos} customers in the holdout actually "
+            "returned.</b> Every metric below carries real sampling error, so all of "
+            "them are shown with 95% bootstrap intervals. A model beats random only "
+            "if its whole AUC interval sits above 0.500 — point estimates alone would "
+            "imply separation the data does not support. MAE is kept only because it "
+            "is conventional; 'predict zero' wins on it.</div>",
             unsafe_allow_html=True,
         )
 
+        show = ev.copy()
+        show["AUC [95% CI]"] = show.apply(
+            lambda r: f"{r['AUC']:.3f} [{r['AUC_lo']:.3f}, {r['AUC_hi']:.3f}]", axis=1)
+        show["Top-10% capture [95% CI]"] = show.apply(
+            lambda r: f"{r['top10%_capture']:.1f}% "
+                      f"[{r['top10%_lo']:.1f}, {r['top10%_hi']:.1f}]", axis=1)
         st.dataframe(
-            ev.rename(columns={"model": "Model", "top10%_capture": "Top-10% capture",
-                               "top10%_lift": "Lift vs random"}),
+            show[["model", "MAE", "AUC [95% CI]", "Top-10% capture [95% CI]",
+                  "top10%_lift", "verdict_vs_random"]].rename(columns={
+                "model": "Model", "top10%_lift": "Lift",
+                "verdict_vs_random": "Beats random?"}),
             hide_index=True, use_container_width=True,
             column_config={
                 "MAE": st.column_config.NumberColumn(format="%.3f"),
-                "RMSE": st.column_config.NumberColumn(format="%.2f"),
-                "Spearman": st.column_config.NumberColumn(format="%.4f"),
-                "AUC": st.column_config.NumberColumn(format="%.4f"),
-                "Top-10% capture": st.column_config.NumberColumn(format="%.1f%%"),
-                "Lift vs random": st.column_config.NumberColumn(format="%.2fx"),
-                "pred_total": st.column_config.NumberColumn("Predicted total", format="R$ %.0f"),
-                "actual_total": st.column_config.NumberColumn("Actual total", format="R$ %.0f"),
+                "Lift": st.column_config.NumberColumn(format="%.2fx"),
+                "Beats random?": st.column_config.TextColumn(
+                    help="'yes' = whole interval above 0.5. 'WORSE' = whole interval "
+                         "below 0.5. 'no' = straddles 0.5, indistinguishable."),
             },
         )
 
-        left, right = st.columns(2)
-        with left:
-            st.plotly_chart(charts.model_comparison(ev, "AUC", "Ranking quality (AUC)"),
-                            use_container_width=True)
-        with right:
-            st.plotly_chart(
-                charts.model_comparison(ev, "top10%_capture",
-                                        "Share of holdout revenue in the top decile (%)"),
-                use_container_width=True)
+        st.plotly_chart(charts.auc_intervals(ev), use_container_width=True)
 
-        st.markdown("#### Decile calibration")
+        st.markdown("#### Quintile calibration")
+        st.caption(
+            "Quintiles, not deciles: at this many positives a decile holds ~41 "
+            "customers who returned (binomial sd ~6.5), and its shape is noise. "
+            "Overlapping error bars mean those bins are not distinguishable."
+        )
         which = st.selectbox("Model", list(bundle["calibration"].keys()), index=2)
         cal = bundle["calibration"][which]
         left, right = st.columns(2)
         with left:
-            st.plotly_chart(charts.decile_calibration(cal, f"{which}: predicted vs actual"),
-                            use_container_width=True)
+            st.plotly_chart(
+                charts.quintile_calibration(cal, f"{which}: predicted vs actual"),
+                use_container_width=True)
         with right:
             st.plotly_chart(charts.revenue_capture(cal), use_container_width=True)
+
+        _render_roi(bundle)
 
         with st.expander("Top model features"):
             st.dataframe(bundle["feature_importance"].head(15), hide_index=True,
                          use_container_width=True)
+
+
+def _render_roi(bundle) -> None:
+    if "roi_breakeven" not in bundle:
+        return
+    st.markdown("#### Is there a positive-ROI intervention?")
+    st.caption(
+        "A ranking metric says the ordering beats chance. It does not say anyone "
+        "should act. The model earns only the INCREMENTAL revenue a campaign "
+        "causes — most of the spend in the top decile would have happened anyway."
+    )
+    st.dataframe(
+        bundle["roi_breakeven"].rename(columns={
+            "incremental_uplift": "Assumed uplift",
+            "incremental_revenue": "Incremental revenue",
+            "breakeven_cost_per_contact": "Break-even cost/contact",
+            "viable_channels": "Channels that clear it"}),
+        hide_index=True, use_container_width=True,
+        column_config={
+            "Incremental revenue": st.column_config.NumberColumn(format="R$ %.0f"),
+            "Break-even cost/contact": st.column_config.NumberColumn(format="R$ %.3f"),
+        },
+    )
+    st.dataframe(
+        bundle["roi_channels"], hide_index=True, use_container_width=True)
+    st.markdown(
+        "<div class='caveat'><b>Verdict.</b> Positive ROI exists only through "
+        "near-zero-marginal-cost channels (email, push). SMS breaks even at ~20% "
+        "uplift; paid social and direct mail destroy value at every plausible "
+        "uplift. And the upside is small in absolute terms — roughly R$ 1,100 on a "
+        "R$ 15.4M revenue base. This model is worth deploying to an email list and "
+        "nowhere else.</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_customer(row: pd.Series) -> None:
