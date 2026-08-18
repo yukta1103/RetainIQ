@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -19,7 +20,7 @@ def _card(title: str, body: str) -> None:
 def render(f: data.Filters) -> None:
     st.title("Business Insights")
     st.caption(
-        "Four takeaways, each with the evidence behind it. Figures are computed "
+        "Five takeaways, each with the evidence behind it. Figures are computed "
         "over the full dataset, not the sidebar filters, so the numbers stay "
         "quotable."
     )
@@ -37,6 +38,13 @@ def render(f: data.Filters) -> None:
     top20 = 100 * mon.head(int(len(mon) * 0.20)).sum() / mon.sum()
     champ_pct = 100 * len(seg[seg["segment"] == "Champions"]) / len(seg)
 
+    # Gini on the spend distribution: 0 = every customer spends identically,
+    # 1 = one customer holds all revenue. Like the percentiles above, it is a
+    # property of the distribution and owes nothing to the segmentation.
+    x = np.sort(seg["monetary"].to_numpy())
+    n = len(x)
+    gini = float((2 * np.sum(np.arange(1, n + 1) * x) / (n * x.sum())) - (n + 1) / n)
+
     _card(
         "1 &nbsp;·&nbsp; Revenue is <i>less</i> concentrated than the 80/20 rule predicts",
         f"Measured directly from the spend distribution — independent of any "
@@ -44,7 +52,8 @@ def render(f: data.Filters) -> None:
         f"revenue, the top <b>5%</b> hold <b>{top5:.1f}%</b>, the top <b>10%</b> hold "
         f"<b>{top10:.1f}%</b>, and the top <b>20%</b> hold <b>{top20:.1f}%</b>. "
         f"The Pareto expectation is 20% → 80%. This base is materially <b>flatter</b> "
-        f"than that. "
+        f"than that, with a <b>Gini coefficient of {gini:.3f}</b> — moderate "
+        f"inequality, not the winner-take-most curve the playbook assumes. "
         f"<br><br>The reason is structural: with 97.85% of customers buying exactly "
         f"once, spend is driven almost entirely by <i>basket size</i> rather than by "
         f"purchase count. There is no compounding — the mechanism that normally "

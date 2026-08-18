@@ -26,7 +26,7 @@ PAGES = {
     "Overview": overview.render,
     "Customer Segments": segments.render,
     "Cohort Retention": cohorts.render,
-    "CLV Predictions": clv.render,
+    "Repeat Propensity": clv.render,
     "Business Insights": insights.render,
 }
 
@@ -48,7 +48,7 @@ def main() -> None:
     st.sidebar.divider()
     st.sidebar.caption(
         "Built from the raw 9-table Olist dataset: ETL → RFM & cohorts → "
-        "CLV models → this dashboard."
+        "repeat-propensity ranking → this dashboard."
     )
 
     PAGES[choice](filters)

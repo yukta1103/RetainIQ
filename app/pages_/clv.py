@@ -1,4 +1,11 @@
-"""Page 4 — CLV Predictions: per-customer lookup, what-if scoring, model comparison."""
+"""Page 4 — Repeat Propensity: per-customer lookup, what-if scoring, model comparison.
+
+Deliberately NOT called CLV prediction. The model ranks customers by their
+likelihood of spending again in 90 days; it does not produce calibrated
+per-customer spend forecasts. The filenames (clv_model.joblib, train_clv.py)
+keep their original names for artifact continuity, but nothing user-facing on
+this page claims a lifetime-value prediction.
+"""
 
 from __future__ import annotations
 
@@ -52,16 +59,16 @@ def render(f: data.Filters) -> None:
     # ---------------------------------------------------------------- lookup
     with tab_lookup:
         st.markdown("#### Look up a customer")
-        mode = st.radio("Pick by", ["Highest predicted value", "Customer ID", "Random"],
+        mode = st.radio("Pick by", ["Highest ranked", "Customer ID", "Random"],
                         horizontal=True)
 
-        if mode == "Highest predicted value":
+        if mode == "Highest ranked":
             pool = clv.nlargest(200, "pred_gbm")
             label = st.selectbox(
                 "Customer", pool[data.CUSTOMER_KEY].tolist(),
                 format_func=lambda c: (
-                    f"{c[:12]}…  ·  predicted "
-                    f"R$ {float(pool.loc[pool[data.CUSTOMER_KEY] == c, 'pred_gbm'].iloc[0]):.2f}"
+                    f"{c[:12]}…  ·  score "
+                    f"{float(pool.loc[pool[data.CUSTOMER_KEY] == c, 'pred_gbm'].iloc[0]):.2f}"
                 ),
             )
         elif mode == "Random":
@@ -107,19 +114,23 @@ def render(f: data.Filters) -> None:
                 "<div class='caveat'><b>This model is structurally broken on this "
                 "dataset.</b> Gamma-Gamma fitted q = 0.497, and since expected spend "
                 "is p·v/(q−1), any q &lt; 1 makes it negative — 73,639 customers get a "
-                "negative predicted CLV. It is shown so the failure is visible, not "
-                "because it should be used.</div>",
+                "negative predicted spend. Its AUC interval [0.436, 0.497] sits "
+                "entirely below 0.5, so it ranks customers significantly worse than "
+                "random. Shown so the failure is visible, not because it should be "
+                "used.</div>",
                 unsafe_allow_html=True,
             )
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Customers scored", f"{len(clv):,}")
-        c2.metric("Total predicted", data.fmt_brl(clv[model_col].sum()))
+        c2.metric("Sum of scores", data.fmt_brl(clv[model_col].sum()),
+                  help="Aggregate calibration only. The model is roughly right in "
+                       "total while being unreliable per customer.")
         c3.metric("Total actual", data.fmt_brl(clv["actual_90d_spend"].sum()))
         c4.metric("Actually returned", f"{int((clv['actual_90d_spend'] > 0).sum()):,}",
                   help="Customers who made a purchase in the 90-day holdout window.")
 
-        st.plotly_chart(charts.clv_by_segment(clv, model_col), use_container_width=True)
+        st.plotly_chart(charts.score_by_segment(clv, model_col), use_container_width=True)
 
         seg_tbl = (
             clv.groupby("segment", observed=True)
@@ -233,22 +244,48 @@ def _render_roi(bundle) -> None:
             "Break-even cost/contact": st.column_config.NumberColumn(format="R$ %.3f"),
         },
     )
+    ch = bundle["roi_channels"].copy()
+    net_col = next(c for c in ch.columns if "10%" in c)
+    ch["Verdict"] = np.where(ch[net_col] > 0, "PROFITABLE", "NET-NEGATIVE")
     st.dataframe(
-        bundle["roi_channels"], hide_index=True, use_container_width=True)
+        ch.rename(columns={"channel": "Channel",
+                           "cost_per_contact": "Cost/contact",
+                           "campaign_cost": "Campaign cost"}),
+        hide_index=True, use_container_width=True,
+        column_config={
+            "Cost/contact": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Campaign cost": st.column_config.NumberColumn(format="R$ %.0f"),
+            **{c: st.column_config.NumberColumn(format="R$ %.0f")
+               for c in ch.columns if c.startswith("net @")},
+        },
+    )
+
+    best_net = float(ch[net_col].max())
+    best_ch = str(ch.loc[ch[net_col].idxmax(), "channel"])
+    n_neg = int((ch[net_col] <= 0).sum())
+    total_rev = float(data.meta().get("total_revenue", 15_373_120))
+
     st.markdown(
-        "<div class='caveat'><b>Verdict.</b> Positive ROI exists only through "
-        "near-zero-marginal-cost channels (email, push). SMS breaks even at ~20% "
-        "uplift; paid social and direct mail destroy value at every plausible "
-        "uplift. And the upside is small in absolute terms — roughly R$ 1,100 on a "
-        "R$ 15.4M revenue base. This model is worth deploying to an email list and "
-        "nowhere else.</div>",
+        f"<div class='caveat'><b>Verdict — stated plainly.</b> The best case is "
+        f"<b>R$ {best_net:,.0f} net</b> ({best_ch}, 10% uplift assumption) against a "
+        f"<b>R$ {total_rev / 1e6:,.1f}M</b> revenue base. That is "
+        f"<b>{100 * best_net / total_rev:.4f}%</b> of revenue — economically "
+        f"negligible. {n_neg} of {len(ch)} channels are net-negative at this uplift; "
+        f"paid social retargeting loses about R$ {abs(float(ch.loc[ch['channel'] == 'Paid social retargeting', net_col].iloc[0])):,.0f}. "
+        f"<br><br>Positive ROI exists <i>only</i> through near-zero-marginal-cost "
+        f"channels. The honest recommendation is to ship this as a ranked email "
+        f"segment and nowhere else — and to spend the saved effort on first-purchase "
+        f"conversion, where the volume actually is.</div>",
         unsafe_allow_html=True,
     )
 
 
 def _render_customer(row: pd.Series) -> None:
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Predicted 90-day spend", data.fmt_brl(row["pred_gbm"], 2))
+    c1.metric("Propensity score", data.fmt_brl(row["pred_gbm"], 2),
+              help="R$-denominated because the model was fitted on spend, but "
+                   "treat it as an ordering, not a forecast. Per-customer spend "
+                   "predictions from this model are not reliable.")
     c2.metric("Actual (holdout)", data.fmt_brl(row["actual_90d_spend"], 2))
     c3.metric("Segment", str(row.get("segment", "—")))
     c4.metric("Historic spend", data.fmt_brl(row["monetary"], 2))
@@ -318,12 +355,12 @@ def _what_if(bundle, clv: pd.DataFrame) -> None:
     pred = float(bundle["gbm_booster"].predict(
         X, num_iteration=bundle["gbm_best_iteration"])[0])
 
-    st.metric("Predicted 90-day spend", data.fmt_brl(pred, 2))
+    st.metric("Propensity score", data.fmt_brl(pred, 2))
     pct = float((clv["pred_gbm"] < pred).mean() * 100)
     st.caption(
-        f"That is higher than {pct:.1f}% of the {len(clv):,} scored customers. "
-        f"For context the population mean prediction is "
-        f"{data.fmt_brl(clv['pred_gbm'].mean(), 2)}."
+        f"This customer ranks above {pct:.1f}% of the {len(clv):,} scored "
+        f"customers — that percentile is the usable output. The population mean "
+        f"score is {data.fmt_brl(clv['pred_gbm'].mean(), 2)}."
     )
 
 

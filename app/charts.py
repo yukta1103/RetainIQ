@@ -353,14 +353,18 @@ def auc_intervals(ev: pd.DataFrame, height: int = 360) -> go.Figure:
     return fig
 
 
-def clv_by_segment(df: pd.DataFrame, value_col: str, height: int = 400) -> go.Figure:
-    """Predicted-CLV distribution per segment. Box plots; identity via position."""
+def score_by_segment(df: pd.DataFrame, value_col: str, height: int = 400) -> go.Figure:
+    """Propensity-score distribution per segment. Box plots; identity via position.
+
+    Axis says 'score', not 'predicted CLV': the values order customers by
+    repurchase likelihood and are not calibrated per-customer spend forecasts.
+    """
     order = (
         df.groupby("segment", observed=True)[value_col].median()
         .sort_values(ascending=False).index.tolist()
     )
-    fig = _fig("Predicted 90-day CLV distribution by segment", height,
-               "Predicted spend (R$)")
+    fig = _fig("Repeat-propensity score distribution by segment", height,
+               "Propensity score (R$-denominated, ordering only)")
     for seg in order:
         vals = df.loc[df["segment"] == seg, value_col]
         if vals.empty:
