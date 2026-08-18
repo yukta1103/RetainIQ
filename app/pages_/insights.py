@@ -98,8 +98,10 @@ def render(f: data.Filters) -> None:
         marker=dict(color=[T.ORANGE, T.BLUE], line=dict(width=2, color=T.SURFACE)),
         text=[f"{v:.2f}%" for v in occ["repeat_rate"]], textposition="outside",
         textfont=dict(size=12, color=T.INK_SECONDARY),
+        cliponaxis=False,  # otherwise the 3.00% label is clipped by the ceiling
         hovertemplate="%{x}: %{y:.2f}%<extra></extra>",
     ))
+    fig.update_yaxes(range=[0, occ["repeat_rate"].max() * 1.22])
     fig.update_layout(showlegend=False, bargap=0.5)
     st.plotly_chart(fig, use_container_width=True)
 

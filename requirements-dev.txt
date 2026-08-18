@@ -1,0 +1,14 @@
+# Development-only dependencies. Deliberately NOT in requirements.txt —
+# Streamlit Cloud installs that file on every deploy, and pulling Playwright
+# into the runtime image would cost minutes of build time for a tool the app
+# itself never uses.
+#
+#   pip install -r requirements-dev.txt
+#   python scripts/screenshot_dashboard.py
+#
+# Playwright drives the locally-installed Chrome via channel="chrome", so
+# `playwright install` is not needed.
+-r requirements.txt
+
+playwright==1.48.0
+pillow==10.4.0

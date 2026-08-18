@@ -60,7 +60,14 @@ def register_template() -> None:
     t = go.layout.Template()
     t.layout = go.Layout(
         font=dict(family=FONT, size=13, color=INK_SECONDARY),
-        title=dict(font=dict(size=15, color=INK_PRIMARY), x=0, xanchor="left", pad=dict(b=12)),
+        # Title sits above the legend, which anchors just over the plot area.
+        # With the default top margin the two collide on any multi-series
+        # chart, so the margin is sized to hold both and the title is pinned
+        # to the top of it.
+        title=dict(
+            font=dict(size=15, color=INK_PRIMARY),
+            x=0, xanchor="left", y=0.97, yanchor="top",
+        ),
         paper_bgcolor=SURFACE,
         plot_bgcolor=SURFACE,
         colorway=CATEGORICAL,
@@ -94,7 +101,7 @@ def register_template() -> None:
             font=dict(size=12, color=INK_SECONDARY),
             bgcolor="rgba(0,0,0,0)",
         ),
-        margin=dict(l=8, r=8, t=48, b=8),
+        margin=dict(l=8, r=8, t=82, b=8),
         hoverlabel=dict(
             font=dict(family=FONT, size=12),
             bgcolor="#ffffff",

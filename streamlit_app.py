@@ -35,7 +35,20 @@ def main() -> None:
     st.sidebar.markdown("## RetainIQ")
     st.sidebar.caption("Customer analytics on the Olist Brazilian e-commerce dataset")
 
-    choice = st.sidebar.radio("Page", list(PAGES), label_visibility="collapsed")
+    # Page selection is mirrored into the URL (?page=...) so individual pages
+    # are deep-linkable — useful for sharing a specific view and for taking
+    # reproducible screenshots without having to script clicks.
+    names = list(PAGES)
+    requested = st.query_params.get("page", names[0])
+    if requested not in PAGES:
+        requested = names[0]
+
+    choice = st.sidebar.radio(
+        "Page", names, index=names.index(requested), label_visibility="collapsed"
+    )
+    if choice != requested:
+        st.query_params["page"] = choice
+
     st.sidebar.divider()
 
     try:

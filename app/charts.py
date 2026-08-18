@@ -77,7 +77,7 @@ def segment_bars(summary: pd.DataFrame, height: int = 420) -> go.Figure:
             x=d["customers"], y=d["segment"], orientation="h",
             marker=dict(color=T.BLUE, line=dict(width=2, color=T.SURFACE)),
             text=[f"{v:,.0f}" for v in d["customers"]],
-            textposition="outside",
+            textposition="outside", cliponaxis=False,
             textfont=dict(size=11, color=T.INK_SECONDARY),
             hovertemplate="<b>%{y}</b><br>%{x:,.0f} customers<extra></extra>",
         )
@@ -302,9 +302,13 @@ def revenue_capture(cal: pd.DataFrame, height: int = 360) -> go.Figure:
             marker=dict(color=T.BLUE, line=dict(width=2, color=T.SURFACE)),
             text=[f"{v:.1f}%" for v in cal["pct_of_actual_revenue"]],
             textposition="outside", textfont=dict(size=11, color=T.INK_SECONDARY),
+            # Without both of these the label on the tallest bar is clipped by
+            # the plot ceiling — the one value a reader most wants to see.
+            cliponaxis=False,
             hovertemplate="%{x}: %{y:.1f}% of revenue<extra></extra>",
         )
     )
+    fig.update_yaxes(range=[0, cal["pct_of_actual_revenue"].max() * 1.18])
     fig.add_hline(y=even, line=dict(color=T.BASELINE, width=1, dash="dot"))
     fig.add_annotation(
         x=cal["bin"].astype(str).iloc[-1], y=even,
@@ -415,7 +419,8 @@ def category_bars(cat: pd.DataFrame, n: int = 12, height: int = 420) -> go.Figur
             x=d["revenue"], y=d["product_category"], orientation="h",
             marker=dict(color=T.BLUE, line=dict(width=2, color=T.SURFACE)),
             text=[f"R$ {v/1000:,.0f}k" for v in d["revenue"]],
-            textposition="outside", textfont=dict(size=11, color=T.INK_SECONDARY),
+            textposition="outside", cliponaxis=False,
+            textfont=dict(size=11, color=T.INK_SECONDARY),
             hovertemplate="<b>%{y}</b><br>R$ %{x:,.0f}<extra></extra>",
         )
     )
